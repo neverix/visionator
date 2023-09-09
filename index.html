@@ -1,0 +1,106 @@
+<html>
+  <head>
+    <title>Camera Video</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/addons/p5.sound.min.js"></script>
+  </head>
+  <body>
+    <h1>Image =&gt; sound</h1>
+    <p>
+      The buzz you're hearing represents the video from your camera.
+    </p>
+    <p id="begin-button">
+      <button onclick="beginDemo()">
+        Start demo
+      </button> (warning: plays loud sound)
+    </p>
+    <video id="camera" width="64" height="64"></video>
+    <canvas id="canvas" width="64" height="64"></canvas>
+    <p>
+      Credit for the model: <a href="https://github.com/muxamilian/wysiwyh">wysiwyh</a>
+    </p>
+    <script type="text/javascript">
+      const oscillators = [];
+      const numOsc = 16, minFreq = 100, maxFreq = 980;
+      var model;
+      async function loadModel() {
+        model = await tf.loadGraphModel("https://cdn.glitch.global/27158038-cbe3-43b8-b909-73e34351360a/model.json");
+      }
+      loadModel().catch(console.error);
+      
+      var video = document.getElementById("camera");
+      var constraints = {
+        video: {
+          width: 64,
+          height: 64,
+          frameRate: 5,
+          facingMode: "environment"
+        }
+      };
+
+      function beginDemo() {
+        for(let i = 0; i < numOsc; i++) {
+          const osc = new p5.SinOsc(minFreq + (i / numOsc) * (maxFreq - minFreq));
+          osc.amp(0);
+          osc.start();
+          oscillators.push(osc);
+        }
+        
+        document.getElementById("begin-button").remove();
+        navigator.mediaDevices.getUserMedia(constraints)
+          .then(function(stream) {
+            // assign stream to video element
+            video.srcObject = stream;
+            // start playing video stream
+            video.play();
+            setTimeout(() => requestAnimationFrame(updateVideo), 1000);
+          })
+          .catch(function(error) {
+            // log error message to console
+            console.error(error);
+          });
+      }
+      function updateVideo() {
+        // check if there is any error in playing the video stream
+        if (video.error) {
+            // log error message to console
+            console.error(video.error.message);
+            // cancel animation frame request
+            cancelAnimationFrame(updateVideo);
+            return;
+        }
+
+        // check if the video stream has ended
+        if (video.ended) {
+            // pause playback
+            video.pause();
+            // cancel animation frame request
+            cancelAnimationFrame(updateVideo);
+            return;
+        }
+
+        // get the current playback position of the video stream
+        var time = video.currentTime;
+        // get the MediaStream object that represents the video stream
+        var stream = video.srcObject;
+        // get pixels
+        var canvas = document.getElementById("canvas");
+        var context = canvas.getContext("2d");
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        var imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const classification = model.execute(tf.expandDims(tf.browser.fromPixels(imageData), 0).div(127.5).sub(1.));
+        classification.reshape([numOsc, Math.floor(128 / numOsc)]).mean(-1).array().then(res => {
+          for(let i = 0; i < numOsc; i++) {
+            oscillators[i].freq(oscillators[i].getFreq());
+            oscillators[i].amp(res[i] / numOsc);
+          }
+        });
+        // console.log(classification.reshape(16, -1).mean(0))
+        // request another animation frame
+        requestAnimationFrame(updateVideo);
+    }
+    </script>
+  </body>
+</html>
